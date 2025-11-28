@@ -51,11 +51,11 @@ const formatCurrency = (amount: number, lang: "bn" | "en") => {
   return toBanglaDigits(amount);
 };
 
-// --- TRANSLATIONS ---
+// --- TRANSLATIONS (UPDATED NAME & LOGO TEXT) ---
 const TRANSLATIONS: any = {
   bn: {
-    app_title: "হারভেস্টগার্ড Pro",
-    sub_title: "আর্থিক ব্যবস্থাপনা",
+    app_title: "কৃষি বন্ধু ২.০", // UPDATED
+    sub_title: "কৃষকের হাসি",    // UPDATED
     net_profit: "মোট লাভ",
     net_loss: "বর্তমান ক্ষতি",
     income: "আয়",
@@ -120,8 +120,8 @@ const TRANSLATIONS: any = {
     not_found: "কৃষক খুঁজে পাওয়া যায়নি"
   },
   en: {
-    app_title: "HarvestGuard Pro",
-    sub_title: "Financial Manager",
+    app_title: "KrishiBondhu 2.0", // UPDATED
+    sub_title: "Krishoker Hasi",   // UPDATED
     net_profit: "Net Profit",
     net_loss: "Net Loss",
     income: "Income",
@@ -207,7 +207,7 @@ const Dashboard = () => {
   // Weather State
   const [selectedDivision, setSelectedDivision] = useState("Dhaka");
   const [selectedMetric, setSelectedMetric] = useState<"temp" | "humidity" | "rain" | null>(null);
-  const [realWeather, setRealWeather] = useState<any>(null); // NEW: Real Data Storage
+  const [realWeather, setRealWeather] = useState<any>(null);
 
   // Form State
   const [activeTab, setActiveTab] = useState<"sell" | "buy">("sell");
@@ -221,38 +221,29 @@ const Dashboard = () => {
 
   const t = TRANSLATIONS[lang];
 
-  // --- WEATHER FETCHING LOGIC (REAL API) ---
+  // --- WEATHER FETCHING LOGIC ---
   useEffect(() => {
     const fetchWeather = async () => {
-        // Reset to mock first to avoid lag
         setRealWeather(null);
         if (WEATHER_API_KEY === "PASTE_YOUR_OPENWEATHER_KEY_HERE") return;
-
         try {
-            // Map Division names to API friendly names (Chattogram -> Chittagong)
             const queryCity = selectedDivision === "Chattogram" ? "Chittagong" : selectedDivision;
             const res = await fetch(`https://api.openweathermap.org/data/2.5/weather?q=${queryCity},BD&units=metric&appid=${WEATHER_API_KEY}`);
             const data = await res.json();
-            
             if (data.cod === 200) {
-                // Success! Create a hybrid object (Real current + Mock forecast)
-                // We simulate a Forecast array based on the Real Temp to keep the graph working
                 const realTemp = Math.round(data.main.temp);
                 setRealWeather({
                     temp: realTemp,
                     humidity: data.main.humidity,
-                    rain: data.clouds ? data.clouds.all : 20, // Estimate rain chance from cloud cover
-                    forecast: [realTemp, realTemp - 1, realTemp + 2, realTemp, realTemp - 2, realTemp + 1, realTemp] // Dynamic graph
+                    rain: data.clouds ? data.clouds.all : 20, 
+                    forecast: [realTemp, realTemp - 1, realTemp + 2, realTemp, realTemp - 2, realTemp + 1, realTemp]
                 });
             }
-        } catch (e) {
-            console.error("Weather API failed, using mock", e);
-        }
+        } catch (e) { console.error("Weather API failed, using mock", e); }
     };
     fetchWeather();
   }, [selectedDivision]);
 
-  // Use Real if available, else Mock
   const currentWeather = realWeather || DIVISION_DATA[selectedDivision];
 
   // --- FINANCIAL ENGINE ---
@@ -415,12 +406,21 @@ const Dashboard = () => {
   return (
     <div className="min-h-screen bg-[#F5F7F5] font-['Hind_Siliguri'] pb-20">
       <header className="bg-white p-4 sticky top-0 z-10 shadow-sm flex justify-between items-center">
-        <div><h1 className="text-2xl font-bold text-[#2F5233]">{t.app_title}</h1><p className="text-xs text-gray-500">{t.sub_title}</p></div>
         <div className="flex items-center gap-3">
+            {/* NEW AESTHETIC LOGO */}
+            <div className="bg-gradient-to-br from-green-50 to-green-100 p-2.5 rounded-2xl border border-green-200 shadow-sm">
+                <Sprout size={28} className="text-[#2F5233]" strokeWidth={2.5} />
+            </div>
+            <div>
+                <h1 className="text-xl font-bold text-[#2F5233] leading-tight">{t.app_title}</h1>
+                <p className="text-xs text-gray-500 font-medium">{t.sub_title}</p>
+            </div>
+        </div>
+        <div className="flex items-center gap-2">
             <button onClick={() => setLang(lang === 'bn' ? 'en' : 'bn')} className="bg-white border border-gray-300 p-2 rounded-full text-gray-600 hover:bg-gray-100 transition shadow-sm font-bold text-xs">{lang === 'bn' ? 'EN' : 'বাংলা'}</button>
             <button onClick={() => setView("community")} className="bg-white border border-gray-300 p-2 rounded-full text-gray-600 hover:bg-indigo-50 hover:border-indigo-300 hover:text-indigo-700 transition shadow-sm"><Users size={20} /></button>
             <button onClick={() => setView("profile")} className="bg-white border border-gray-300 p-2 rounded-full text-gray-600 hover:bg-green-50 hover:border-green-300 hover:text-green-700 transition relative shadow-sm"><User size={20} />{netProfit > 0 && <span className="absolute top-0 right-0 w-3 h-3 bg-red-500 rounded-full border-2 border-white"></span>}</button>
-            <div className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-sm font-bold ${isOffline ? 'bg-gray-200 text-gray-600' : 'bg-green-100 text-green-700'}`}><Cloud size={16} />{isOffline ? "Off" : "On"}</div>
+            <div className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-xs font-bold ${isOffline ? 'bg-gray-200 text-gray-600' : 'bg-green-100 text-green-700'}`}><Cloud size={14} />{isOffline ? "Off" : "On"}</div>
         </div>
       </header>
 
