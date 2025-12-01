@@ -4,10 +4,11 @@ import {
   TrendingUp, TrendingDown, Sprout, Package, FlaskConical, User, Award, Medal, Trophy, Star, Lock, 
   Zap, Globe, Users, Search, Phone, UserPlus, Loader2, Camera, Upload, ScanLine, X, FileText, 
   CheckCircle, AlertTriangle, MessageCircle, Send, Bot, Mic, StopCircle, Volume2, VolumeX, Bell,
-  Map as MapIcon // Renamed to avoid conflict with JS Map constructor
+  Map as MapIcon, LogOut, Save, Settings, Edit, Eye, EyeOff // Renamed to avoid conflict with JS Map constructor
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { createClient } from "@supabase/supabase-js";
+import { useNavigate } from "react-router-dom";
 
 // --- CONFIGURATION ---
 const supabaseUrl = "https://cdndutsyztaqtiwtntts.supabase.co";
@@ -170,7 +171,13 @@ const TRANSLATIONS: any = {
     risk_level: "ঝুঁকি", crop_type: "ফসল", last_update: "সর্বশেষ আপডেট",
     recommended: "উপযুক্ত", avoid: "বর্জনীয়",
     Dhaka: "ঢাকা", Chattogram: "চট্টগ্রাম", Sylhet: "সিলেট", Rajshahi: "রাজশাহী",
-    Khulna: "খুলনা", Barisal: "বরিশাল", Rangpur: "রংপুর", Mymensingh: "ময়মনসিংহ"
+    Khulna: "খুলনা", Barisal: "বরিশাল", Rangpur: "রংপুর", Mymensingh: "ময়মনসিংহ",
+    phone_number: "ফোন নম্বর", logout: "লগআউট", save: "সংরক্ষণ করুন", phone_placeholder: "ফোন নম্বর লিখুন",
+    settings: "সেটিংস", change_password: "পাসওয়ার্ড পরিবর্তন করুন", change_username: "ইউজারনেম পরিবর্তন করুন",
+    current_password: "বর্তমান পাসওয়ার্ড", new_password: "নতুন পাসওয়ার্ড", confirm_password: "পাসওয়ার্ড নিশ্চিত করুন",
+    profile_picture: "প্রোফাইল ছবি", upload_picture: "ছবি আপলোড করুন", edit: "সম্পাদনা করুন",
+    password_changed: "পাসওয়ার্ড পরিবর্তন হয়েছে", username_changed: "ইউজারনেম পরিবর্তন হয়েছে",
+    phone_changed: "ফোন নম্বর পরিবর্তন হয়েছে", picture_changed: "প্রোফাইল ছবি পরিবর্তন হয়েছে"
   },
   en: {
     app_title: "KrishiBondhu 2.0", sub_title: "Krishoker Hasi", net_profit: "Net Profit", net_loss: "Net Loss",
@@ -200,18 +207,36 @@ const TRANSLATIONS: any = {
     risk_level: "Risk", crop_type: "Crop", last_update: "Last Update",
     recommended: "Suitable", avoid: "Avoid",
     Dhaka: "Dhaka", Chattogram: "Chattogram", Sylhet: "Sylhet", Rajshahi: "Rajshahi",
-    Khulna: "Khulna", Barisal: "Barisal", Rangpur: "Rangpur", Mymensingh: "Mymensingh"
+    Khulna: "Khulna", Barisal: "Barisal", Rangpur: "Rangpur", Mymensingh: "Mymensingh",
+    phone_number: "Phone Number", logout: "Logout", save: "Save", phone_placeholder: "Enter phone number",
+    settings: "Settings", change_password: "Change Password", change_username: "Change Username",
+    current_password: "Current Password", new_password: "New Password", confirm_password: "Confirm Password",
+    profile_picture: "Profile Picture", upload_picture: "Upload Picture", edit: "Edit",
+    password_changed: "Password changed successfully", username_changed: "Username changed successfully",
+    phone_changed: "Phone number changed successfully", picture_changed: "Profile picture changed successfully"
   }
 };
 
 const Dashboard = () => {
+  const navigate = useNavigate();
   // --- STATE ---
   const [transactions, setTransactions] = useState<any[]>([]);
   const [userId, setUserId] = useState<string | null>(null);
   const [username, setUsername] = useState<string>("Guest");
-  const [isOffline, setIsOffline] = useState(!navigator.onLine);
-  // Added "risk_map" to view
-  const [view, setView] = useState<"dashboard" | "profile" | "community" | "scanner" | "chat" | "risk_map">("dashboard");
+  const [phoneNumber, setPhoneNumber] = useState<string>("");
+  const [profilePicture, setProfilePicture] = useState<string>("");
+  const [isSaving, setIsSaving] = useState(false);
+  const [isEditing, setIsEditing] = useState(false);
+  const [isCheckingAuth, setIsCheckingAuth] = useState(true);
+  // Settings states
+  const [editUsername, setEditUsername] = useState<string>("");
+  const [editPhoneNumber, setEditPhoneNumber] = useState<string>("");
+  const [currentPassword, setCurrentPassword] = useState<string>("");
+  const [newPassword, setNewPassword] = useState<string>("");
+  const [confirmPassword, setConfirmPassword] = useState<string>("");
+  const [showPassword, setShowPassword] = useState(false);
+  // Added "settings" and "risk_map" to view
+  const [view, setView] = useState<"dashboard" | "profile" | "community" | "scanner" | "chat" | "risk_map" | "settings">("dashboard");
   const [lang, setLang] = useState<"bn" | "en">(() => (localStorage.getItem("app_lang") as "bn" | "en") || "bn");
   
   const [showMenu, setShowMenu] = useState(false);
@@ -387,19 +412,146 @@ const Dashboard = () => {
   };
   const badge = getBadgeData(netProfit);
 
+  // Authentication check and session listener
   useEffect(() => {
-    window.addEventListener('online', () => setIsOffline(false));
-    window.addEventListener('offline', () => setIsOffline(true));
-    const init = async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (user) {
-          setUserId(user.id); setUsername(user.email?.split('@')[0] || "User");
+    let isMounted = true;
+    setIsCheckingAuth(true);
+    
+    // Check initial session with retry logic
+    const checkAuth = async (retryCount = 0) => {
+      try {
+        const { data: { session }, error } = await supabase.auth.getSession();
+        
+        if (!isMounted) return;
+        
+        if (error) {
+          console.error('Session check error:', error);
+          // Retry once if network error
+          if (retryCount < 1 && (error.message?.includes('network') || error.message?.includes('fetch'))) {
+            setTimeout(() => checkAuth(retryCount + 1), 1000);
+            return;
+          }
+          // If still error after retry, redirect to auth
+          navigate('/auth', { replace: true });
+          return;
+        }
+        
+        if (!session) {
+          // No session, redirect to auth
+          navigate('/auth', { replace: true });
+          return;
+        }
+        
+        // User is authenticated
+        const user = session.user;
+        if (isMounted) {
+          setUserId(user.id);
+          setUsername(user.email?.split('@')[0] || "User");
+        }
+        
+        // Fetch user profile including phone number and profile picture (non-blocking)
+        supabase
+          .from('profiles')
+          .select('phone, full_name')
+          .eq('user_id', user.id)
+          .single()
+          .then(({ data: profile, error: profileError }) => {
+            if (!isMounted) return;
+            if (!profileError && profile) {
+              if (profile.phone) setPhoneNumber(profile.phone);
+              if (profile.full_name) setUsername(profile.full_name);
+            }
+            // Fetch profile picture
+            supabase.storage
+              .from('profile-pictures')
+              .createSignedUrl(`${user.id}/avatar.jpg`, 3600)
+              .then(({ data: pictureData }) => {
+                if (pictureData && isMounted) setProfilePicture(pictureData.signedUrl);
+              })
+              .catch(() => {}); // Silently fail if no picture
+          })
+          .catch((err) => {
+            // Silently fail - profile fetch is optional
+            console.error('Error fetching profile:', err);
+          });
+        
+        if (isMounted) {
+          setIsCheckingAuth(false);
+        }
+      } catch (err) {
+        console.error('Unexpected error in checkAuth:', err);
+        if (isMounted) {
+          // On unexpected error, still try to show the app if we have a session
+          const { data: { session: fallbackSession } } = await supabase.auth.getSession();
+          if (fallbackSession) {
+            setUserId(fallbackSession.user.id);
+            setUsername(fallbackSession.user.email?.split('@')[0] || "User");
+            setIsCheckingAuth(false);
+          } else {
+            navigate('/auth', { replace: true });
+          }
+        }
       }
-      const local = localStorage.getItem("harvest_transactions");
-      if (local) setTransactions(JSON.parse(local));
-      if (chatMessages.length === 0) setChatMessages([{ id: 1, text: t.chat_welcome, sender: 'bot' }]);
     };
-    init();
+    
+    checkAuth();
+    
+    // Listen for auth state changes (logout, token refresh, etc.)
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      async (event, session) => {
+        if (!isMounted) return;
+        
+        if (event === 'SIGNED_OUT' || !session) {
+          // User logged out or session expired
+          navigate('/auth', { replace: true });
+          return;
+        }
+        
+        if (session?.user) {
+          setUserId(session.user.id);
+          setUsername(session.user.email?.split('@')[0] || "User");
+          setIsCheckingAuth(false);
+          
+          // Fetch profile (non-blocking)
+          supabase
+            .from('profiles')
+            .select('phone, full_name')
+            .eq('user_id', session.user.id)
+            .single()
+            .then(({ data: profile, error: profileError }) => {
+              if (!isMounted) return;
+              if (!profileError && profile) {
+                if (profile.phone) setPhoneNumber(profile.phone);
+                if (profile.full_name) setUsername(profile.full_name);
+              }
+              // Fetch profile picture
+              supabase.storage
+                .from('profile-pictures')
+                .createSignedUrl(`${session.user.id}/avatar.jpg`, 3600)
+                .then(({ data: pictureData }) => {
+                  if (pictureData && isMounted) setProfilePicture(pictureData.signedUrl);
+                })
+                .catch(() => {}); // Silently fail if no picture
+            })
+            .catch((err) => {
+              console.error('Error fetching profile:', err);
+            });
+        }
+      }
+    );
+    
+    return () => {
+      isMounted = false;
+      subscription.unsubscribe();
+    };
+  }, [navigate]);
+
+  useEffect(() => {
+    // Online/offline listeners removed as requested
+    
+    const local = localStorage.getItem("harvest_transactions");
+    if (local) setTransactions(JSON.parse(local));
+    if (chatMessages.length === 0) setChatMessages([{ id: 1, text: t.chat_welcome, sender: 'bot' }]);
     
     return () => {
         if (window.speechSynthesis) window.speechSynthesis.cancel();
@@ -438,6 +590,132 @@ const Dashboard = () => {
     const updated = transactions.filter(t => t.id !== id);
     setTransactions(updated);
     localStorage.setItem("harvest_transactions", JSON.stringify(updated));
+  };
+
+  const handleProfilePictureUpload = async (file: File) => {
+    if (!userId) return;
+    try {
+      // Compress image
+      const compressedImage = await compressImage(file);
+      const base64Data = compressedImage.split(',')[1];
+      const blob = await fetch(compressedImage).then(r => r.blob());
+      
+      // Upload to Supabase storage
+      const { error: uploadError } = await supabase.storage
+        .from('profile-pictures')
+        .upload(`${userId}/avatar.jpg`, blob, {
+          upsert: true,
+          contentType: 'image/jpeg'
+        });
+      
+      if (uploadError) throw uploadError;
+      
+      // Get signed URL
+      const { data: urlData } = await supabase.storage
+        .from('profile-pictures')
+        .createSignedUrl(`${userId}/avatar.jpg`, 31536000); // 1 year expiry
+      
+      if (urlData) {
+        setProfilePicture(urlData.signedUrl);
+        return true;
+      }
+      return false;
+    } catch (error) {
+      console.error('Error uploading profile picture:', error);
+      return false;
+    }
+  };
+
+  const handleSaveSettings = async () => {
+    if (!userId) return;
+    setIsSaving(true);
+    
+    try {
+      const updates: any = { user_id: userId, updated_at: new Date().toISOString() };
+      
+      // Update username if changed
+      if (editUsername && editUsername !== username) {
+        updates.full_name = editUsername;
+        setUsername(editUsername);
+      }
+      
+      // Update phone number if changed
+      if (editPhoneNumber !== phoneNumber) {
+        updates.phone = editPhoneNumber;
+        setPhoneNumber(editPhoneNumber);
+      }
+      
+      // Save to profiles table
+      if (Object.keys(updates).length > 2) { // More than just user_id and updated_at
+        const { error } = await supabase
+          .from('profiles')
+          .upsert(updates, { onConflict: 'user_id' });
+        if (error) throw error;
+      }
+      
+      // Change password if provided
+      if (newPassword && currentPassword) {
+        if (newPassword !== confirmPassword) {
+          alert(lang === 'bn' ? 'নতুন পাসওয়ার্ড মিলছে না' : 'New passwords do not match');
+          setIsSaving(false);
+          return;
+        }
+        
+        const { error: passwordError } = await supabase.auth.updateUser({
+          password: newPassword
+        });
+        
+        if (passwordError) {
+          // Try to verify current password first
+          const { error: signInError } = await supabase.auth.signInWithPassword({
+            email: (await supabase.auth.getUser()).data.user?.email || '',
+            password: currentPassword
+          });
+          
+          if (signInError) {
+            alert(lang === 'bn' ? 'বর্তমান পাসওয়ার্ড ভুল' : 'Current password is incorrect');
+            setIsSaving(false);
+            return;
+          }
+          
+          // Now update password
+          const { error: updateError } = await supabase.auth.updateUser({
+            password: newPassword
+          });
+          if (updateError) throw updateError;
+        }
+        
+        setCurrentPassword('');
+        setNewPassword('');
+        setConfirmPassword('');
+      }
+      
+      setIsEditing(false);
+      setEditUsername('');
+      setEditPhoneNumber('');
+      alert(lang === 'bn' ? 'সেটিংস সংরক্ষণ হয়েছে' : 'Settings saved successfully');
+    } catch (error: any) {
+      console.error('Error saving settings:', error);
+      alert(lang === 'bn' ? 'সংরক্ষণে ত্রুটি হয়েছে' : 'Error saving settings');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleLogout = async () => {
+    try {
+      await supabase.auth.signOut();
+      // Clear local state
+      setUserId(null);
+      setUsername("Guest");
+      setPhoneNumber("");
+      // Navigate will be handled by auth state listener
+      navigate('/auth', { replace: true });
+    } catch (error) {
+      console.error('Error logging out:', error);
+      // Even if there's an error, try to navigate
+      navigate('/auth', { replace: true });
+    }
   };
 
   // --- CROP SCANNER FIX (Pest ID + Action Plan) ---
@@ -537,7 +815,31 @@ const Dashboard = () => {
       setTimeout(() => chatEndRef.current?.scrollIntoView({ behavior: "smooth" }), 100);
   };
 
+  // Timeout for auth check to prevent infinite loading
+  useEffect(() => {
+    if (!isCheckingAuth) return;
+    
+    const timeout = setTimeout(() => {
+      console.warn('Auth check taking too long, allowing app to render');
+      setIsCheckingAuth(false);
+    }, 3000);
+    
+    return () => clearTimeout(timeout);
+  }, [isCheckingAuth]);
+
   // --- RENDERING ---
+
+  // Show loading screen while checking authentication
+  if (isCheckingAuth) {
+    return (
+      <div className="min-h-screen bg-[#F5F7F5] font-['Hind_Siliguri'] flex items-center justify-center">
+        <div className="text-center">
+          <Loader2 className="w-12 h-12 animate-spin text-[#2F5233] mx-auto mb-4" />
+          <p className="text-gray-600 font-bold">{lang === 'bn' ? 'লোড হচ্ছে...' : 'Loading...'}</p>
+        </div>
+      </div>
+    );
+  }
 
   if (selectedMetric) {
     const titles = { temp: "তাপমাত্রা পূর্বাভাস", humidity: "আর্দ্রতা পূর্বাভাস", rain: "বৃষ্টির সম্ভাবনা" };
@@ -613,7 +915,289 @@ const Dashboard = () => {
   // --- OTHER VIEWS (Profile, Community, Dashboard) ---
   if (view === "community") { return (<div className="min-h-screen bg-[#F5F7F5] font-['Hind_Siliguri'] pb-20 p-4 animate-in fade-in duration-300"><button onClick={() => setView("dashboard")} className="flex items-center gap-2 text-gray-600 mb-6 font-bold text-lg p-2 hover:bg-gray-100 rounded-lg w-full"><ArrowLeft /> {t.dashboard}</button><h2 className="text-2xl font-bold text-[#2F5233] mb-4">{t.community}</h2><div className="flex gap-2 mb-6"><div className="relative flex-1"><input type="text" placeholder={t.search_placeholder} className="w-full p-3 pl-10 rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-green-500" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)}/><Search className="absolute left-3 top-3 text-gray-400" size={20}/></div><button onClick={handleSearchFriend} disabled={searchLoading} className="bg-[#2F5233] text-white px-4 rounded-xl font-bold disabled:opacity-50">{searchLoading ? <Loader2 className="animate-spin"/> : t.search_btn}</button></div>{searchError && <p className="text-red-500 text-center mb-4">{searchError}</p>}{foundFriend && (<motion.div initial={{ y: 20, opacity: 0 }} animate={{ y: 0, opacity: 1 }} className="bg-white p-6 rounded-3xl shadow-lg border border-gray-100"><div className="flex items-center gap-4 mb-4"><div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center text-green-700"><User size={30} /></div><div><h3 className="text-xl font-bold capitalize">{foundFriend.name}</h3><p className="text-sm text-gray-500">@{foundFriend.username}</p></div></div><div className="grid grid-cols-2 gap-3 mb-4"><div className="bg-gray-50 p-3 rounded-xl"><p className="text-xs text-gray-500">{t.contact}</p><p className="font-bold">{foundFriend.contact}</p></div><div className="bg-gray-50 p-3 rounded-xl"><p className="text-xs text-gray-500">{t.friend_badge}</p><p className={`font-bold ${foundFriend.badgeColor}`}>{foundFriend.badgeName}</p></div></div><div className="p-4 bg-green-50 rounded-xl border border-green-100"><p className="text-sm text-gray-600 mb-1">{t.friend_profit}</p><h2 className="text-3xl font-bold text-[#2F5233]">৳ {formatCurrency(foundFriend.profit, lang)}</h2></div><button className="w-full mt-4 bg-gray-900 text-white py-3 rounded-xl flex items-center justify-center gap-2 font-bold"><UserPlus size={18}/> Follow Farmer</button></motion.div>)}</div>); }
 
-  if (view === "profile") { return (<div className="min-h-screen bg-[#F5F7F5] font-['Hind_Siliguri'] pb-20 p-4 animate-in fade-in duration-300"><button onClick={() => setView("dashboard")} className="flex items-center gap-2 text-gray-600 mb-6 font-bold text-lg p-2 hover:bg-gray-100 rounded-lg w-full"><ArrowLeft /> {t.dashboard}</button><div className="bg-white p-6 rounded-3xl shadow-lg text-center mb-6 border border-gray-100 relative overflow-hidden"><div className={`absolute top-0 left-0 w-full h-2 ${badge.bg}`}></div><motion.div initial={{ scale: 0.8 }} animate={{ scale: 1 }} className={`w-28 h-28 mx-auto rounded-full flex items-center justify-center mb-4 ${badge.bg} border-4 border-white shadow-2xl relative z-10`}>{badge.icon}</motion.div><h2 className="text-2xl font-bold text-gray-800 capitalize">{username}</h2><div className="flex justify-center gap-4 text-xs text-gray-500 mt-1 mb-2"><span className="flex items-center gap-1"><User size={12}/> @{username}</span></div><div className={`inline-block px-3 py-1 rounded-full text-sm font-bold mt-2 ${badge.bg} ${badge.color}`}>{badge.name}</div><div className="mt-6 text-left"><div className="flex justify-between text-xs font-bold mb-1"><span className="text-gray-500">{t.current_profit}: ৳{formatCurrency(netProfit, lang)}</span><span className="text-[#2F5233]">{t.target}: ৳{formatCurrency(badge.next, lang)}</span></div><div className="w-full h-4 bg-gray-200 rounded-full overflow-hidden"><motion.div initial={{ width: 0 }} animate={{ width: `${badge.progressPercent}%` }} className="h-full bg-gradient-to-r from-green-400 to-[#2F5233]" /></div><p className="text-xs text-center mt-2 text-gray-500"><Zap size={12} className="inline mr-1 text-yellow-500"/>{t.earn_more} <strong>৳{formatCurrency(badge.remaining, lang)}</strong> {t.earn_more_suffix} <span className="font-bold">{badge.nextName}</span>!</p></div></div><h3 className="font-bold text-gray-500 mb-4 flex items-center gap-2"><Trophy size={18}/> {t.badges}</h3><div className="space-y-3"><div className={`p-4 rounded-xl flex items-center gap-4 border ${netProfit >= 100000 ? "bg-cyan-50 border-cyan-200" : "bg-white border-gray-200 opacity-60 grayscale"}`}><div className="bg-cyan-100 p-2 rounded-full"><Star size={24} className={netProfit >= 100000 ? "text-cyan-500" : "text-gray-400"} fill={netProfit >= 100000 ? "currentColor" : "none"}/></div><div className="flex-1"><h4 className="font-bold flex items-center gap-2">{t.badge_diamond} {netProfit < 100000 && <Lock size={12}/>}</h4><p className="text-xs">{t.profit_100k}</p></div></div><div className={`p-4 rounded-xl flex items-center gap-4 border ${netProfit >= 50000 ? "bg-yellow-50 border-yellow-200" : "bg-white border-gray-200 opacity-60 grayscale"}`}><div className="bg-yellow-100 p-2 rounded-full"><Trophy size={24} className={netProfit >= 50000 ? "text-yellow-500" : "text-gray-400"} fill={netProfit >= 50000 ? "currentColor" : "none"}/></div><div className="flex-1"><h4 className="font-bold flex items-center gap-2">{t.badge_gold} {netProfit < 50000 && <Lock size={12}/>}</h4><p className="text-xs">{t.profit_50k}</p></div></div><div className={`p-4 rounded-xl flex items-center gap-4 border ${netProfit >= 10000 ? "bg-slate-50 border-slate-200" : "bg-white border-gray-200 opacity-60 grayscale"}`}><div className="bg-slate-100 p-2 rounded-full"><Medal size={24} className={netProfit >= 10000 ? "text-slate-500" : "text-gray-400"} /></div><div className="flex-1"><h4 className="font-bold flex items-center gap-2">{t.badge_silver} {netProfit < 10000 && <Lock size={12}/>}</h4><p className="text-xs">{t.profit_10k}</p></div></div></div></div>); }
+  if (view === "profile") { 
+    return (
+      <div className="min-h-screen bg-[#F5F7F5] font-['Hind_Siliguri'] pb-20 p-4 animate-in fade-in duration-300">
+        <button onClick={() => setView("dashboard")} className="flex items-center gap-2 text-gray-600 mb-6 font-bold text-lg p-2 hover:bg-gray-100 rounded-lg w-full">
+          <ArrowLeft /> {t.dashboard}
+        </button>
+        
+        <div className="bg-white p-6 rounded-3xl shadow-lg text-center mb-6 border border-gray-100 relative overflow-hidden">
+          <div className={`absolute top-0 left-0 w-full h-2 ${badge.bg}`}></div>
+          <motion.div initial={{ scale: 0.8 }} animate={{ scale: 1 }} className={`w-28 h-28 mx-auto rounded-full flex items-center justify-center mb-4 ${!profilePicture ? badge.bg : ''} border-4 border-white shadow-2xl relative z-10 overflow-hidden`}>
+            {profilePicture ? (
+              <img src={profilePicture} alt="Profile" className="w-full h-full object-cover" />
+            ) : (
+              badge.icon
+            )}
+          </motion.div>
+          <h2 className="text-2xl font-bold text-gray-800 capitalize">{username}</h2>
+          <div className="flex justify-center gap-4 text-xs text-gray-500 mt-1 mb-2">
+            <span className="flex items-center gap-1"><User size={12}/> @{username}</span>
+            {phoneNumber && <span className="flex items-center gap-1"><Phone size={12}/> {phoneNumber}</span>}
+          </div>
+          <div className={`inline-block px-3 py-1 rounded-full text-sm font-bold mt-2 ${badge.bg} ${badge.color}`}>
+            {badge.name}
+          </div>
+          <div className="mt-6 text-left">
+            <div className="flex justify-between text-xs font-bold mb-1">
+              <span className="text-gray-500">{t.current_profit}: ৳{formatCurrency(netProfit, lang)}</span>
+              <span className="text-[#2F5233]">{t.target}: ৳{formatCurrency(badge.next, lang)}</span>
+            </div>
+            <div className="w-full h-4 bg-gray-200 rounded-full overflow-hidden">
+              <motion.div initial={{ width: 0 }} animate={{ width: `${badge.progressPercent}%` }} className="h-full bg-gradient-to-r from-green-400 to-[#2F5233]" />
+            </div>
+            <p className="text-xs text-center mt-2 text-gray-500">
+              <Zap size={12} className="inline mr-1 text-yellow-500"/>
+              {t.earn_more} <strong>৳{formatCurrency(badge.remaining, lang)}</strong> {t.earn_more_suffix} <span className="font-bold">{badge.nextName}</span>!
+            </p>
+          </div>
+        </div>
+
+        {/* Logout Section */}
+        <div className="bg-white p-6 rounded-3xl shadow-lg mb-6 border border-gray-100">
+          <button
+            onClick={handleLogout}
+            className="w-full bg-red-50 text-red-600 py-3 rounded-xl font-bold flex items-center justify-center gap-2 hover:bg-red-100 transition border border-red-200"
+          >
+            <LogOut size={18}/> {t.logout}
+          </button>
+        </div>
+
+        {/* Badges Section */}
+        <h3 className="font-bold text-gray-500 mb-4 flex items-center gap-2">
+          <Trophy size={18}/> {t.badges}
+        </h3>
+        <div className="space-y-3">
+          <div className={`p-4 rounded-xl flex items-center gap-4 border ${netProfit >= 100000 ? "bg-cyan-50 border-cyan-200" : "bg-white border-gray-200 opacity-60 grayscale"}`}>
+            <div className="bg-cyan-100 p-2 rounded-full">
+              <Star size={24} className={netProfit >= 100000 ? "text-cyan-500" : "text-gray-400"} fill={netProfit >= 100000 ? "currentColor" : "none"}/>
+            </div>
+            <div className="flex-1">
+              <h4 className="font-bold flex items-center gap-2">{t.badge_diamond} {netProfit < 100000 && <Lock size={12}/>}</h4>
+              <p className="text-xs">{t.profit_100k}</p>
+            </div>
+          </div>
+          <div className={`p-4 rounded-xl flex items-center gap-4 border ${netProfit >= 50000 ? "bg-yellow-50 border-yellow-200" : "bg-white border-gray-200 opacity-60 grayscale"}`}>
+            <div className="bg-yellow-100 p-2 rounded-full">
+              <Trophy size={24} className={netProfit >= 50000 ? "text-yellow-500" : "text-gray-400"} fill={netProfit >= 50000 ? "currentColor" : "none"}/>
+            </div>
+            <div className="flex-1">
+              <h4 className="font-bold flex items-center gap-2">{t.badge_gold} {netProfit < 50000 && <Lock size={12}/>}</h4>
+              <p className="text-xs">{t.profit_50k}</p>
+            </div>
+          </div>
+          <div className={`p-4 rounded-xl flex items-center gap-4 border ${netProfit >= 10000 ? "bg-slate-50 border-slate-200" : "bg-white border-gray-200 opacity-60 grayscale"}`}>
+            <div className="bg-slate-100 p-2 rounded-full">
+              <Medal size={24} className={netProfit >= 10000 ? "text-slate-500" : "text-gray-400"} />
+            </div>
+            <div className="flex-1">
+              <h4 className="font-bold flex items-center gap-2">{t.badge_silver} {netProfit < 10000 && <Lock size={12}/>}</h4>
+              <p className="text-xs">{t.profit_10k}</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Initialize edit values when entering settings
+  useEffect(() => {
+    if (view === "settings" && !editUsername && !editPhoneNumber) {
+      setEditUsername(username);
+      setEditPhoneNumber(phoneNumber);
+    }
+  }, [view, username, phoneNumber]);
+
+  // --- SETTINGS VIEW ---
+  if (view === "settings") {
+
+    return (
+      <div className="min-h-screen bg-[#F5F7F5] font-['Hind_Siliguri'] pb-20 p-4 animate-in fade-in duration-300">
+        <button onClick={() => setView("dashboard")} className="flex items-center gap-2 text-gray-600 mb-6 font-bold text-lg p-2 hover:bg-gray-100 rounded-lg w-full">
+          <ArrowLeft /> {t.dashboard}
+        </button>
+
+        <h2 className="text-2xl font-bold text-[#2F5233] mb-6 flex items-center gap-2">
+          <Settings size={24} /> {t.settings}
+        </h2>
+
+        {/* Profile Picture Section */}
+        <div className="bg-white p-6 rounded-3xl shadow-lg mb-6 border border-gray-100">
+          <h3 className="font-bold text-gray-700 mb-4 flex items-center gap-2">
+            <Camera size={18} className="text-[#2F5233]"/> {t.profile_picture}
+          </h3>
+          <div className="flex flex-col items-center gap-4">
+            <div className="w-32 h-32 rounded-full overflow-hidden border-4 border-gray-200 flex items-center justify-center bg-gray-100">
+              {profilePicture ? (
+                <img src={profilePicture} alt="Profile" className="w-full h-full object-cover" />
+              ) : (
+                <User size={48} className="text-gray-400" />
+              )}
+            </div>
+            <label className="bg-[#2F5233] text-white px-6 py-3 rounded-xl font-bold flex items-center justify-center gap-2 cursor-pointer hover:bg-[#1e3a21] transition">
+              <Upload size={18} /> {t.upload_picture}
+              <input
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={async (e) => {
+                  const file = e.target.files?.[0];
+                  if (file) {
+                    const success = await handleProfilePictureUpload(file);
+                    if (success) {
+                      alert(lang === 'bn' ? t.picture_changed : t.picture_changed);
+                    }
+                  }
+                }}
+              />
+            </label>
+          </div>
+        </div>
+
+        {/* Username Section */}
+        <div className="bg-white p-6 rounded-3xl shadow-lg mb-6 border border-gray-100">
+          <div className="flex justify-between items-center mb-4">
+            <h3 className="font-bold text-gray-700 flex items-center gap-2">
+              <User size={18} className="text-[#2F5233]"/> {t.change_username}
+            </h3>
+            {!isEditing && (
+              <button
+                onClick={() => setIsEditing(true)}
+                className="text-[#2F5233] hover:text-[#1e3a21] flex items-center gap-1 text-sm font-bold"
+              >
+                <Edit size={16} /> {t.edit}
+              </button>
+            )}
+          </div>
+          <div className="space-y-3">
+            <div className="relative">
+              <User className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" size={20}/>
+              <input
+                type="text"
+                value={isEditing ? editUsername : username}
+                onChange={(e) => setEditUsername(e.target.value)}
+                disabled={!isEditing}
+                placeholder={t.change_username}
+                className="w-full pl-11 p-3 bg-gray-50 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-[#2F5233] focus:border-transparent disabled:bg-gray-100 disabled:cursor-not-allowed"
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* Phone Number Section */}
+        <div className="bg-white p-6 rounded-3xl shadow-lg mb-6 border border-gray-100">
+          <div className="flex justify-between items-center mb-4">
+            <h3 className="font-bold text-gray-700 flex items-center gap-2">
+              <Phone size={18} className="text-[#2F5233]"/> {t.phone_number}
+            </h3>
+            {!isEditing && (
+              <button
+                onClick={() => setIsEditing(true)}
+                className="text-[#2F5233] hover:text-[#1e3a21] flex items-center gap-1 text-sm font-bold"
+              >
+                <Edit size={16} /> {t.edit}
+              </button>
+            )}
+          </div>
+          <div className="space-y-3">
+            <div className="relative">
+              <Phone className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" size={20}/>
+              <input
+                type="tel"
+                value={isEditing ? editPhoneNumber : phoneNumber}
+                onChange={(e) => setEditPhoneNumber(e.target.value)}
+                disabled={!isEditing}
+                placeholder={t.phone_placeholder}
+                className="w-full pl-11 p-3 bg-gray-50 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-[#2F5233] focus:border-transparent disabled:bg-gray-100 disabled:cursor-not-allowed"
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* Change Password Section */}
+        <div className="bg-white p-6 rounded-3xl shadow-lg mb-6 border border-gray-100">
+          <h3 className="font-bold text-gray-700 mb-4 flex items-center gap-2">
+            <Lock size={18} className="text-[#2F5233]"/> {t.change_password}
+          </h3>
+          <div className="space-y-3">
+            <div className="relative">
+              <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" size={20}/>
+              <input
+                type={showPassword ? "text" : "password"}
+                value={currentPassword}
+                onChange={(e) => setCurrentPassword(e.target.value)}
+                placeholder={t.current_password}
+                className="w-full pl-11 pr-11 p-3 bg-gray-50 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-[#2F5233] focus:border-transparent"
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassword(!showPassword)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+              >
+                {showPassword ? <EyeOff size={20} /> : <Eye size={20} />}
+              </button>
+            </div>
+            <div className="relative">
+              <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" size={20}/>
+              <input
+                type={showPassword ? "text" : "password"}
+                value={newPassword}
+                onChange={(e) => setNewPassword(e.target.value)}
+                placeholder={t.new_password}
+                className="w-full pl-11 pr-11 p-3 bg-gray-50 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-[#2F5233] focus:border-transparent"
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassword(!showPassword)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+              >
+                {showPassword ? <EyeOff size={20} /> : <Eye size={20} />}
+              </button>
+            </div>
+            <div className="relative">
+              <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" size={20}/>
+              <input
+                type={showPassword ? "text" : "password"}
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+                placeholder={t.confirm_password}
+                className="w-full pl-11 pr-11 p-3 bg-gray-50 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-[#2F5233] focus:border-transparent"
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassword(!showPassword)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+              >
+                {showPassword ? <EyeOff size={20} /> : <Eye size={20} />}
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* Save Button */}
+        {isEditing && (
+          <div className="bg-white p-6 rounded-3xl shadow-lg mb-6 border border-gray-100">
+            <button
+              onClick={handleSaveSettings}
+              disabled={isSaving}
+              className="w-full bg-[#2F5233] text-white py-3 rounded-xl font-bold flex items-center justify-center gap-2 hover:bg-[#1e3a21] transition disabled:opacity-50"
+            >
+              {isSaving ? (
+                <>
+                  <Loader2 size={18} className="animate-spin"/> {lang === 'bn' ? 'সংরক্ষণ হচ্ছে...' : 'Saving...'}
+                </>
+              ) : (
+                <>
+                  <Save size={18}/> {t.save}
+                </>
+              )}
+            </button>
+          </div>
+        )}
+      </div>
+    );
+  }
 
   // --- DASHBOARD (Main View) ---
   return (
@@ -629,7 +1213,7 @@ const Dashboard = () => {
             <button onClick={() => { setShowMenu(false); setView("risk_map"); }} className="flex items-center gap-3 w-full p-3 hover:bg-orange-50 rounded-lg text-gray-700 font-bold"><MapIcon size={18} className="text-orange-600"/> {t.risk_map_title}</button>
           </motion.div>
         )}</AnimatePresence>
-        <div className="flex items-center gap-2"><button onClick={() => setLang(lang === 'bn' ? 'en' : 'bn')} className="bg-white border border-gray-300 p-2 rounded-full text-gray-600 hover:bg-gray-100 transition shadow-sm font-bold text-xs">{lang === 'bn' ? 'EN' : 'বাংলা'}</button><button onClick={() => setView("community")} className="bg-white border border-gray-300 p-2 rounded-full text-gray-600 hover:bg-indigo-50 hover:border-indigo-300 hover:text-indigo-700 transition shadow-sm"><Users size={20} /></button><button onClick={() => setView("profile")} className="bg-white border border-gray-300 p-2 rounded-full text-gray-600 hover:bg-green-50 hover:border-green-300 hover:text-green-700 transition relative shadow-sm"><User size={20} />{netProfit > 0 && <span className="absolute top-0 right-0 w-3 h-3 bg-red-500 rounded-full border-2 border-white"></span>}</button><div className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-xs font-bold ${isOffline ? 'bg-gray-200 text-gray-600' : 'bg-green-100 text-green-700'}`}><Cloud size={14} />{isOffline ? "Off" : "On"}</div></div>
+        <div className="flex items-center gap-2"><button onClick={() => setView("community")} className="bg-white border border-gray-300 p-2 rounded-full text-gray-600 hover:bg-indigo-50 hover:border-indigo-300 hover:text-indigo-700 transition shadow-sm"><Users size={20} /></button><button onClick={() => setView("profile")} className="bg-white border border-gray-300 p-2 rounded-full text-gray-600 hover:bg-green-50 hover:border-green-300 hover:text-green-700 transition relative shadow-sm"><User size={20} />{netProfit > 0 && <span className="absolute top-0 right-0 w-3 h-3 bg-red-500 rounded-full border-2 border-white"></span>}</button><button onClick={() => setView("settings")} className="bg-white border border-gray-300 p-2 rounded-full text-gray-600 hover:bg-purple-50 hover:border-purple-300 hover:text-purple-700 transition shadow-sm"><Settings size={20} /></button></div>
       </header>
 
       <div className="p-4 space-y-6 max-w-md mx-auto">
